@@ -6,8 +6,8 @@ game_title :: "Bouncing Thingy"
 canvas_width :: 600
 canvas_height :: 800
 
-initial_width :: 800
-initial_height :: 1000
+window_width :: 800
+window_height :: 1000
 
 should_close := false
 canvas_texture : raylib.RenderTexture2D
@@ -19,7 +19,7 @@ canvas_source := raylib.Rectangle{
 }
 canvas_dest := raylib.Rectangle{
     0, 0,
-    cast(f32)initial_width, cast(f32)initial_height
+    cast(f32)window_width, cast(f32)window_height
 }
 
 tile_size :: 60
@@ -33,8 +33,7 @@ bottom_ball : Ball
 
 Ball :: struct {
     position : raylib.Vector2,
-    direction : raylib.Vector2,
-    speed : f32,
+    velocity : raylib.Vector2,
     collision_value : bool
 }
 
@@ -60,46 +59,56 @@ draw_tile :: proc(i : int) {
 
 reset_balls :: proc() {
     top_ball.position = raylib.Vector2{canvas_width / 2, canvas_height * 3 / 4}
-    top_ball.direction = raylib.Vector2{cast(f32)raylib.GetRandomValue(-1, 1), -1}
-    top_ball.speed = 10
+    direction := raylib.Vector2{cast(f32)raylib.GetRandomValue(-1, 1), -1}
+    top_ball.velocity = direction * 10
     top_ball.collision_value = true
 
     bottom_ball.position = raylib.Vector2{canvas_width / 2, canvas_height / 4}
-    bottom_ball.direction = raylib.Vector2{cast(f32)raylib.GetRandomValue(-1, 1), 1}
-    bottom_ball.speed = 10
+    direction = raylib.Vector2{cast(f32)raylib.GetRandomValue(-1, 1), 1}
+    bottom_ball.velocity = direction * 10
     bottom_ball.collision_value = false
 }
 
 update_ball :: proc(ball : ^Ball) {
-    ball.position += ball.direction * ball.speed
+    ball_bounds := BoundingBox{ball.position, raylib.Vector2{20, 20}}
+    draw_bounds(ball_bounds, raylib.RED)
 
-    // bounce off walls
-    if ball.position.x < 0 || ball.position.x > canvas_width {
-        ball.direction.x = -ball.direction.x
-    }
+    destination_bounds := BoundingBox{ball.position + ball.velocity, raylib.Vector2{20, 20}}
+    draw_bounds(destination_bounds, raylib.GREEN)
 
-    if ball.position.y < 0 || ball.position.y > canvas_height {
-        ball.direction.y = -ball.direction.y
-    }
+    destination_tile := cast(int)(destination_bounds.position.x / tile_size) +
+                        cast(int)(destination_bounds.position.y / tile_size) * tile_count_x
 
-    // bounce off grid
-    x_tile := cast(int)ball.position.x / tile_size
-    y_tile := cast(int)ball.position.y / tile_size
+    if destination_tile >= 0 && destination_tile < tile_count_x * tile_count_y {
+        if grid[destination_tile] == ball.collision_value {
+            tile_bounds := BoundingBox{
+                raylib.Vector2{
+                    cast(f32)(destination_tile % tile_count_x) * tile_size,
+                    cast(f32)(destination_tile / tile_count_x) * tile_size,
+                },
+                raylib.Vector2{tile_size, tile_size},
+            }
+            draw_bounds(tile_bounds, raylib.BLUE)
 
-    if x_tile >= 0 && x_tile < tile_count_x && y_tile >= 0 && y_tile < tile_count_y {
-        if grid[y_tile * tile_count_x + x_tile] == ball.collision_value {
-            ball.direction.y = -ball.direction.y
-            grid[y_tile * tile_count_x + x_tile] ~= true
+            new_bounds, new_velocity := sweep_and_deflect(ball_bounds, tile_bounds, ball.velocity)
+            fmt.println(ball_bounds.position, ball.velocity, new_bounds.position, new_velocity)
+            
+            ball.position = new_bounds.position
+            ball.velocity = new_velocity
+            grid[destination_tile] = !grid[destination_tile]
+
+        } else {
+            ball.position += ball.velocity
         }
     }
 }
 
 main :: proc() {
-    raylib.InitWindow(initial_width, initial_height, game_title)
-    raylib.SetTargetFPS(60)
+    raylib.InitWindow(window_width, window_height, game_title)
+    raylib.SetTargetFPS(10)
 
     canvas_texture = raylib.LoadRenderTexture(canvas_width, canvas_height)
-    window_texture = raylib.LoadRenderTexture(initial_width, initial_height)
+    window_texture = raylib.LoadRenderTexture(window_width, window_height)
 
     reset_grid()
     reset_balls()
@@ -115,6 +124,8 @@ main :: proc() {
 
             raylib.DrawCircleV(top_ball.position, 20, raylib.BLACK)
             raylib.DrawCircleV(bottom_ball.position, 20, raylib.RAYWHITE)
+            update_ball(&top_ball)
+            update_ball(&bottom_ball)
         raylib.EndTextureMode()
 
         raylib.BeginDrawing()
@@ -131,9 +142,6 @@ main :: proc() {
             reset_grid()
             reset_balls()
         }
-
-        update_ball(&top_ball)
-        update_ball(&bottom_ball)
     }
 
     raylib.CloseWindow()
